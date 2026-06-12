@@ -1,9 +1,9 @@
 services:
   cloudmusic:
-    image: ghcr.io/你的GitHub用户名/cloudmusic-dashboard:latest
+    image: ghcr.io/lillinlin/cloudmusic-manager:latest
     container_name: cloudmusic
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:9000:9000"
     volumes:
       - ./data:/app/data
