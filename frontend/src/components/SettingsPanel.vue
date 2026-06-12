@@ -23,7 +23,9 @@
           <input v-model="form.share.id" class="input w-full" placeholder="1297494209" />
         </div>
         <div>
-          <label class="label">动态文案 <span class="text-slate-600 font-normal">支持 {{"{{"}}count{{"}}"}} {{"{{"}}date{{"}}"}}</span></label>
+          <label class="label">动态文案
+            <span class="text-slate-600 font-normal ml-1">支持变量 {{countHint}} {{dateHint}}</span>
+          </label>
           <input v-model="form.share.msg" class="input w-full" />
         </div>
       </div>
@@ -31,7 +33,10 @@
 
     <!-- Telegram -->
     <div class="bg-slate-800 rounded-2xl border border-slate-700 p-5">
-      <h2 class="font-semibold mb-4 text-sm text-slate-300">Telegram 通知 <span class="text-slate-600 font-normal">（可选）</span></h2>
+      <h2 class="font-semibold mb-4 text-sm text-slate-300">
+        Telegram 通知
+        <span class="text-slate-600 font-normal">（可选）</span>
+      </h2>
       <div class="flex gap-3">
         <div class="flex-1">
           <label class="label">Bot Token</label>
@@ -70,13 +75,17 @@ import axios from 'axios'
 
 const emit = defineEmits(['saved'])
 
+// 用 JS 变量存字面量，避免 Vue 模板把 {{}} 当插值处理
+const countHint = '{{count}}'
+const dateHint  = '{{date}}'
+
 const form = reactive({
   apiBase: '', runAt: '12:00', quotaPerMonth: 5,
   share: { type: 'song', id: '', msg: '本月第{{count}}次分享 ✅ {{date}}' },
   telegram: { token: '', chat_id: '' },
   accounts: [],
 })
-const saving = ref(false)
+const saving  = ref(false)
 const saveMsg = ref('')
 const saveOk  = ref(true)
 
@@ -87,17 +96,17 @@ const pwOk  = ref(true)
 onMounted(async () => {
   try {
     const { data } = await axios.get('/api/config')
-    form.apiBase        = data.apiBase        || ''
-    form.runAt          = data.runAt          || '12:00'
-    form.quotaPerMonth  = data.quotaPerMonth  || 5
-    form.accounts       = data.accounts       || []
+    form.apiBase       = data.apiBase       || ''
+    form.runAt         = data.runAt         || '12:00'
+    form.quotaPerMonth = data.quotaPerMonth || 5
+    form.accounts      = data.accounts      || []
     if (data.share)    Object.assign(form.share,    data.share)
     if (data.telegram) Object.assign(form.telegram, data.telegram)
   } catch {}
 })
 
 async function save() {
-  saving.value = true
+  saving.value  = true
   saveMsg.value = ''
   try {
     await axios.post('/api/config', form)
@@ -114,8 +123,12 @@ async function save() {
 
 async function changePw() {
   pwMsg.value = ''
-  if (!pw.username || !pw.password) { pwOk.value = false; pwMsg.value = '请填写用户名和新密码'; return }
-  if (pw.password !== pw.confirm)   { pwOk.value = false; pwMsg.value = '两次密码不一致'; return }
+  if (!pw.username || !pw.password) {
+    pwOk.value = false; pwMsg.value = '请填写用户名和新密码'; return
+  }
+  if (pw.password !== pw.confirm) {
+    pwOk.value = false; pwMsg.value = '两次密码不一致'; return
+  }
   try {
     await axios.post('/api/auth/change_password', { username: pw.username, password: pw.password })
     pwOk.value  = true
