@@ -10,7 +10,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
 IMAGE="ghcr.io/lillinlin/cloudmusic-manager:latest"
-INSTALL_DIR="/opt/cloudmusic"
+INSTALL_DIR="/app/cloudmusic"
 CONTAINER="cloudmusic"
 PORT=9000
 
@@ -33,12 +33,10 @@ EOF
 echo -e "${CYAN}         https://github.com/lillinlin/Cloudmusic-Manager${NC}\n"
 }
 
-# ── 检查 root ────────────────────────────────
 check_root() {
     [[ $EUID -ne 0 ]] && error "请使用 root 权限运行：sudo bash install.sh"
 }
 
-# ── 检查/安装 Docker ─────────────────────────
 check_docker() {
     section "检查 Docker"
     if command -v docker &>/dev/null; then
@@ -50,7 +48,6 @@ check_docker() {
         systemctl start docker
         log "Docker 安装完成"
     fi
-
     if ! docker compose version &>/dev/null; then
         warn "未检测到 Docker Compose Plugin，正在安装…"
         apt-get install -y docker-compose-plugin 2>/dev/null || \
@@ -60,16 +57,14 @@ check_docker() {
     log "Docker Compose：$(docker compose version)"
 }
 
-# ── 创建目录 ─────────────────────────────────
 setup_dir() {
     section "创建目录"
     mkdir -p "$INSTALL_DIR/data"
     log "安装目录：$INSTALL_DIR"
 }
 
-# ── 写 docker-compose.yml ────────────────────
 write_compose() {
-    section "写入配置"
+    section "写入 docker-compose.yml"
     cat > "$INSTALL_DIR/docker-compose.yml" << EOF
 services:
   cloudmusic:
@@ -84,22 +79,16 @@ EOF
     log "docker-compose.yml 已写入"
 }
 
-# ── 拉取镜像并启动 ────────────────────────────
 start_container() {
     section "拉取镜像并启动"
     cd "$INSTALL_DIR"
-
-    # 如果已有容器则先停止
     if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
         warn "检测到已有容器，停止并移除…"
         docker compose down
     fi
-
     info "拉取镜像（首次可能需要几分钟）…"
     docker compose pull
     docker compose up -d
-
-    # 等待启动
     sleep 3
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
         log "容器启动成功"
@@ -108,16 +97,14 @@ start_container() {
     fi
 }
 
-# ── 配置 nginx ────────────────────────────────
 setup_nginx() {
     section "配置 Nginx"
-
     if ! command -v nginx &>/dev/null; then
-        info "未检测到 Nginx，跳过（你可以之后手动配置）"
+        info "未检测到 Nginx，跳过（可之后手动配置，参考 README）"
         return
     fi
 
-    echo -en "${YELLOW}是否自动配置 Nginx 反代？[y/N]${NC} "
+    echo -en "${YELLOW}是否配置 Nginx 反代？[y/N]${NC} "
     read -r ans
     [[ "$ans" != "y" && "$ans" != "Y" ]] && info "跳过 Nginx 配置" && return
 
@@ -125,10 +112,27 @@ setup_nginx() {
     read -r DOMAIN
     [[ -z "$DOMAIN" ]] && warn "域名为空，跳过 Nginx 配置" && return
 
-    cat > "/etc/nginx/sites-available/cloudmusic" << EOF
+    echo -en "${YELLOW}请输入 SSL 证书 .pem 路径：${NC} "
+    read -r SSL_CERT
+    echo -en "${YELLOW}请输入 SSL 证书 .key 路径：${NC} "
+    read -r SSL_KEY
+
+    if [[ -z "$SSL_CERT" || -z "$SSL_KEY" ]]; then
+        warn "证书路径为空，生成 HTTP 配置（无 SSL）"
+        cat > "/etc/nginx/sites-available/cloudmusic" << EOF
 server {
     listen 80;
     server_name $DOMAIN;
+
+    location ^~ /data/ {
+        deny all;
+        return 403;
+    }
+
+    location ~ /\. {
+        deny all;
+        return 403;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:$PORT;
@@ -136,29 +140,61 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 60s;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
     }
 }
 EOF
+    else
+        cat > "/etc/nginx/sites-available/cloudmusic" << EOF
+server {
+    listen 443 ssl;
+    server_name $DOMAIN;
+
+    ssl_certificate     $SSL_CERT;
+    ssl_certificate_key $SSL_KEY;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    location ^~ /data/ {
+        deny all;
+        return 403;
+    }
+
+    location ~ /\. {
+        deny all;
+        return 403;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+}
+
+# HTTP 重定向到 HTTPS
+server {
+    listen 80;
+    server_name $DOMAIN;
+    return 301 https://\$host\$request_uri;
+}
+EOF
+    fi
 
     ln -sf /etc/nginx/sites-available/cloudmusic /etc/nginx/sites-enabled/cloudmusic
     nginx -t && systemctl reload nginx
-    log "Nginx 配置完成：http://$DOMAIN"
-
-    # 提示申请 SSL
-    if command -v certbot &>/dev/null; then
-        echo -en "${YELLOW}是否自动申请 SSL 证书？[y/N]${NC} "
-        read -r ssl_ans
-        if [[ "$ssl_ans" == "y" || "$ssl_ans" == "Y" ]]; then
-            certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@$DOMAIN"
-            log "SSL 证书申请完成"
-        fi
-    else
-        info "如需 HTTPS，请安装 certbot 后运行：certbot --nginx -d $DOMAIN"
-    fi
+    log "Nginx 配置完成"
 }
 
-# ── 完成 ─────────────────────────────────────
 print_done() {
     section "安装完成"
     LOCAL_IP=$(hostname -I | awk '{print $1}')
@@ -166,8 +202,8 @@ print_done() {
 ${GREEN}${BOLD}🎉 CloudMusic Manager 已成功安装！${NC}
 
   访问面板：
-    本机访问：  ${CYAN}http://127.0.0.1:$PORT${NC}
-    局域网访问：${CYAN}http://$LOCAL_IP:$PORT${NC}
+    本机：      ${CYAN}http://127.0.0.1:$PORT${NC}
+    局域网：    ${CYAN}http://$LOCAL_IP:$PORT${NC}
 
   首次使用：
     1. 打开面板，进入「设置」填写 API 地址和账号
@@ -182,7 +218,6 @@ ${GREEN}${BOLD}🎉 CloudMusic Manager 已成功安装！${NC}
 "
 }
 
-# ── 主流程 ────────────────────────────────────
 main() {
     clear
     banner
