@@ -332,6 +332,11 @@ class Scheduler:
             time.sleep(delta)
             self.run_once()
 
+    def reload(self):
+        """配置变更后重新加载（调度时间等）"""
+        self.load_config()
+        self.log("配置已重新加载")
+
     def start(self):
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
