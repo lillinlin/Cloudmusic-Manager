@@ -1,4 +1,3 @@
-"""网易云 API 封装 + 核心业务逻辑"""
 import json
 import time
 import random
@@ -131,7 +130,10 @@ def qr_check(base: str, key: str) -> dict:
     返回 {code, cookie}，空响应返回 {}
     code: 801=等待扫码 802=待确认 803=成功 800=过期
     """
+    import logging
+    _log = logging.getLogger("ncm.qr")
     r = api(base, "/login/qr/check", params={"key": key})
+    _log.info(f"qr_check raw: {r}")   # debug
     if not r:
         return {}
     code = r.get("code", 0)
