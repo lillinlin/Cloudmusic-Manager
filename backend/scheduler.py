@@ -128,10 +128,14 @@ class Scheduler:
         base = self.cfg.get("apiBase", "")
         key  = self.qr_sessions.get(name, {}).get("key", "")
         self.log(f"[{name}] 等待扫码…")
-        for _ in range(60):
-            time.sleep(4)
+        for _ in range(120):   # 最多等4分钟，每2秒查一次
+            time.sleep(2)
             result = ncm.qr_check(base, key)
-            code   = result.get("code", 0)
+            if not result:     # 空响应跳过，不改状态
+                continue
+            code = result.get("code", 0)
+            if code == 0:      # 接口异常，跳过
+                continue
             self.qr_sessions[name]["status"] = code
             if code == 803:
                 cookie = result["cookie"]
@@ -139,13 +143,13 @@ class Scheduler:
                 self.save_cookie(name, cookie)
                 self.log(f"[{name}] 扫码登录成功")
                 self._update_runtime(name, logged_in=True)
-                # 更新昵称头像
                 profile = ncm.get_user_profile(base, cookie)
                 self._update_runtime(name, **profile)
                 return
             if code == 800:
                 self.log(f"[{name}] 二维码过期", "WARNING")
                 return
+            # 802 = 已扫码等确认，继续轮询
         self.log(f"[{name}] 扫码超时", "WARNING")
 
     def qr_status(self, name: str) -> dict:
