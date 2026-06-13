@@ -1,4 +1,3 @@
-"""后台调度器"""
 import json
 import os
 import time
@@ -128,15 +127,36 @@ class Scheduler:
         base = self.cfg.get("apiBase", "")
         key  = self.qr_sessions.get(name, {}).get("key", "")
         self.log(f"[{name}] 等待扫码…")
-        for _ in range(120):   # 最多等4分钟，每2秒查一次
-            time.sleep(2)
+        confirmed = False   # 是否已收到 802（手机已扫码）
+        empty_after_802 = 0 # 802 后连续空响应计数
+
+        for _ in range(240):  # 最多等4分钟
+            # 收到 802 后加速轮询，抢在 800 前拿到 803
+            time.sleep(0.8 if confirmed else 2)
+
             result = ncm.qr_check(base, key)
-            if not result:     # 空响应跳过，不改状态
+
+            if not result:
+                if confirmed:
+                    # 802 后出现空响应是正常现象，立刻再查一次
+                    empty_after_802 += 1
+                    if empty_after_802 <= 5:
+                        time.sleep(0.3)
+                        continue
                 continue
+
             code = result.get("code", 0)
-            if code == 0:      # 接口异常，跳过
+            if not code:
                 continue
+
             self.qr_sessions[name]["status"] = code
+
+            if code == 802:
+                confirmed = True
+                empty_after_802 = 0
+                self.log(f"[{name}] 已扫码，等待确认…")
+                continue
+
             if code == 803:
                 cookie = result["cookie"]
                 self.qr_sessions[name]["cookie"] = cookie
@@ -146,10 +166,30 @@ class Scheduler:
                 profile = ncm.get_user_profile(base, cookie)
                 self._update_runtime(name, **profile)
                 return
+
             if code == 800:
+                if confirmed:
+                    # 802 后短暂出现 800 可能是竞态，再多查几次确认
+                    retry_ok = False
+                    for _ in range(3):
+                        time.sleep(0.5)
+                        r2 = ncm.qr_check(base, key)
+                        if r2.get("code") == 803:
+                            cookie = r2["cookie"]
+                            self.qr_sessions[name]["cookie"] = cookie
+                            self.save_cookie(name, cookie)
+                            self.qr_sessions[name]["status"] = 803
+                            self.log(f"[{name}] 扫码登录成功（重试）")
+                            self._update_runtime(name, logged_in=True)
+                            profile = ncm.get_user_profile(base, cookie)
+                            self._update_runtime(name, **profile)
+                            retry_ok = True
+                            break
+                    if retry_ok:
+                        return
                 self.log(f"[{name}] 二维码过期", "WARNING")
                 return
-            # 802 = 已扫码等确认，继续轮询
+
         self.log(f"[{name}] 扫码超时", "WARNING")
 
     def qr_status(self, name: str) -> dict:
