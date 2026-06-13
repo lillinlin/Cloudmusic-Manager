@@ -1,3 +1,4 @@
+"""后台调度器"""
 import json
 import os
 import time
@@ -154,6 +155,17 @@ class Scheduler:
             if code == 802:
                 confirmed = True
                 empty_after_802 = 0
+                # 802 的 cookie 在某些 API 版本就是最终 cookie，直接验证
+                cookie_802 = ncm.normalize_cookie(result.get("cookie", ""))
+                if cookie_802 and ncm.is_logged_in(base, cookie_802):
+                    self.qr_sessions[name]["cookie"] = cookie_802
+                    self.qr_sessions[name]["status"] = 803
+                    self.save_cookie(name, cookie_802)
+                    self.log(f"[{name}] 扫码登录成功（802 cookie）")
+                    self._update_runtime(name, logged_in=True)
+                    profile = ncm.get_user_profile(base, cookie_802)
+                    self._update_runtime(name, **profile)
+                    return
                 self.log(f"[{name}] 已扫码，等待确认…")
                 continue
 
