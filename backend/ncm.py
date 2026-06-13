@@ -128,11 +128,15 @@ def qr_create(base: str) -> dict:
 def qr_check(base: str, key: str) -> dict:
     """
     检查扫码状态
-    返回 {code, cookie}
+    返回 {code, cookie}，空响应返回 {}
     code: 801=等待扫码 802=待确认 803=成功 800=过期
     """
     r = api(base, "/login/qr/check", params={"key": key})
+    if not r:
+        return {}
     code = r.get("code", 0)
+    if not code:
+        return {}
     cookie = ""
     if code == 803:
         cookie = normalize_cookie(r.get("cookie", ""))
