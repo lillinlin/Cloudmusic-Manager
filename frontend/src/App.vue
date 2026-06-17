@@ -38,9 +38,13 @@
           <!-- 添加账号 -->
           <div class="flex gap-2 mb-4">
             <input v-model="newAccName" placeholder="输入账号名称（如 acc1）"
-                   class="input w-64" @keyup.enter="addAccount" />
-            <button @click="addAccount" class="btn-primary px-4">+ 添加账号</button>
-          </div>
+                   class="input w-56" @keyup.enter="addAccount" />
+            <select v-model="newAccRole" class="input w-32">
+              <option value="sharer">动态分享</option>
+              <option value="listener">听歌保活</option>
+              </select>
+            <button @click="addAccount" class="btn-primary px-4">+ 添加</button>
+            </div>
 
           <!-- 账号卡片列表 -->
           <div v-if="accounts.length === 0"
