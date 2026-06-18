@@ -338,20 +338,23 @@ class Scheduler:
 
     remaining = target - done
     if remaining <= 0:
-        # 当前歌曲听完，切下一首
         st["song_index"]   += 1
         st["song_listened"] = 0
         idx = st["song_index"]
+
         if idx >= len(songs):
             self.log(f"[{name}] 本月歌单已全部听完 🎉")
             return
+
         current   = songs[idx]
         song_id   = current.get("song_id", "")
         target    = current.get("times", 3)
         remaining = target
+
         self.log(f"[{name}] 切换到第 {idx+1} 首：{song_id}")
 
     self.log(f"[{name}] 🎵 听歌第 {idx+1}/{len(songs)} 首（{song_id}），还需听 {remaining} 次")
+
     for _ in range(remaining):
         ok = ncm.scrobble(base, cookie, song_id)
         if ok:
@@ -361,12 +364,14 @@ class Scheduler:
         else:
             self.log(f"[{name}]   ✗ 听歌请求失败，稍后重试", "WARNING")
             break
+
         time.sleep(2)
 
     # 检查当前歌曲是否听完
     if st["song_listened"] >= target:
         st["song_index"]   += 1
         st["song_listened"] = 0
+
         if st["song_index"] >= len(songs):
             self.log(f"[{name}] 🎉 本月歌单全部听完")
         else:
