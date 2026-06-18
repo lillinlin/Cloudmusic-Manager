@@ -5,7 +5,7 @@ from collections import deque
 import ncm
 import notifier
 
-logger  = logging.getLogger("scheduler")
+logger      = logging.getLogger("scheduler")
 DATA_DIR    = os.environ.get("DATA_DIR", "/app/data")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 STATE_PATH  = os.path.join(DATA_DIR, "state.json")
@@ -30,13 +30,13 @@ def _ts():
 
 class Scheduler:
     def __init__(self):
-        self.cfg     = {}
-        self.state   = {"accounts": {}}
-        self.logs    = deque(maxlen=LOG_MAX)
-        self.runtime = {}
-        self.qr_sessions = {}
-        self._lock   = threading.Lock()
-        self._thread = None
+        self.cfg          = {}
+        self.state        = {"accounts": {}}
+        self.logs         = deque(maxlen=LOG_MAX)
+        self.runtime      = {}
+        self.qr_sessions  = {}
+        self._lock        = threading.Lock()
+        self._thread      = None
 
     def init(self):
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -45,6 +45,7 @@ class Scheduler:
                 json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=2)
             logger.info("已创建默认配置文件")
 
+    # ── 日志 ─────────────────────────────────
     def log(self, msg, level="INFO"):
         entry = {"ts": _ts(), "level": level, "msg": msg}
         self.logs.append(entry)
@@ -106,8 +107,11 @@ class Scheduler:
         if not data:
             return {"ok": False, "msg": "获取二维码失败，请检查 API 地址"}
         self.qr_sessions[name] = {
-            "key": data["key"], "qrimg": data["qrimg"],
-            "qrurl": data["qrurl"], "status": 801, "cookie": "",
+            "key":    data["key"],
+            "qrimg":  data["qrimg"],
+            "qrurl":  data["qrurl"],
+            "status": 801,
+            "cookie": "",
         }
         threading.Thread(target=self._qr_poll, args=(name,), daemon=True).start()
         return {"ok": True, "qrimg": data["qrimg"], "qrurl": data["qrurl"]}
@@ -117,9 +121,9 @@ class Scheduler:
         key  = self.qr_sessions.get(name, {}).get("key", "")
         self.log(f"[{name}] 等待扫码…")
 
-        confirmed        = False
-        empty_after_802  = 0
-        last_802_cookie  = ""
+        confirmed       = False
+        empty_after_802 = 0
+        last_802_cookie = ""
 
         for _ in range(240):
             time.sleep(0.8 if confirmed else 2)
@@ -147,8 +151,7 @@ class Scheduler:
                 continue
 
             if code == 803:
-                cookie = result["cookie"]
-                self._login_success(name, cookie)
+                self._login_success(name, result["cookie"])
                 return
 
             if code == 800:
@@ -167,7 +170,7 @@ class Scheduler:
         self.save_cookie(name, cookie)
         self.log(f"[{name}] 登录成功")
         self._update_runtime(name, logged_in=True)
-        base = self.cfg.get("apiBase", "")
+        base    = self.cfg.get("apiBase", "")
         profile = ncm.get_user_profile(base, cookie)
         self._update_runtime(name, **profile)
 
@@ -181,8 +184,11 @@ class Scheduler:
     def _update_runtime(self, name, **kwargs):
         if name not in self.runtime:
             self.runtime[name] = {
-                "logged_in": False, "nickname": "", "avatar": "",
-                "last_run": "", "next_run": "",
+                "logged_in": False,
+                "nickname":  "",
+                "avatar":    "",
+                "last_run":  "",
+                "next_run":  "",
             }
         self.runtime[name].update(kwargs)
 
@@ -192,14 +198,16 @@ class Scheduler:
         ym    = now.strftime("%Y-%m")
         quota = self.cfg.get("quotaPerMonth", 5)
         result = []
+
         for acc in self.cfg.get("accounts", []):
-            name   = acc["name"]
-            role   = acc.get("role", "sharer")   # sharer | listener
-            st     = self.state["accounts"].get(name, {})
-            rt     = self.runtime.get(name, {})
-            cookie = self.load_cookie(name)
-            logged_in = bool(cookie) and ncm.is_logged_in(self.cfg.get("apiBase",""), cookie)
+            name      = acc["name"]
+            role      = acc.get("role", "sharer")
+            st        = self.state["accounts"].get(name, {})
+            rt        = self.runtime.get(name, {})
+            cookie    = self.load_cookie(name)
+            logged_in = bool(cookie) and ncm.is_logged_in(self.cfg.get("apiBase", ""), cookie)
             self._update_runtime(name, logged_in=logged_in)
+
             item = {
                 "name":      name,
                 "role":      role,
@@ -209,18 +217,21 @@ class Scheduler:
                 "last_run":  rt.get("last_run", ""),
                 "next_run":  rt.get("next_run", ""),
                 "qr_status": self.qr_sessions.get(name, {}).get("status", 0),
-                # sharer 专用
+                # sharer
                 "ym":    st.get("ym", ym),
                 "count": st.get("count", 0),
                 "quota": quota,
                 "days":  st.get("days", {}),
-                # listener 专用
-                "listen_today":  st.get("listen_today", 0),
+                # listener
+                "songs":         acc.get("songs", []),
+                "song_index":    st.get("song_index", 0),
+                "song_listened": st.get("song_listened", 0),
                 "listen_daily":  acc.get("listen_daily", 10),
-                # 各账号独立歌曲
+                # 通用
                 "song_id": acc.get("song_id", self.cfg.get("share", {}).get("id", "")),
             }
             result.append(item)
+
         return result
 
     # ── 分享逻辑 ──────────────────────────────
@@ -249,7 +260,7 @@ class Scheduler:
             if not ids_to_delete and st.get("prev_ym"):
                 uid = ncm.get_uid(base, cookie)
                 if uid:
-                    events = ncm.fetch_my_events(base, cookie, uid, limit=50)
+                    events  = ncm.fetch_my_events(base, cookie, uid, limit=50)
                     keyword = st["prev_ym"]
                     ids_to_delete = [e["id"] for e in events if keyword in e["msg"]]
                     if ids_to_delete:
@@ -259,12 +270,17 @@ class Scheduler:
                 for ev_id in ids_to_delete:
                     ok = ncm.delete_event(base, cookie, ev_id)
                     self.log(f"[{name}]   {'✅' if ok else '✗'} 删除 {ev_id}")
-                    (failed if not ok else []).append(ev_id) if not ok else None
-                    if ok: deleted += 1
+                    if ok:
+                        deleted += 1
+                    else:
+                        failed.append(ev_id)
                     time.sleep(0.5)
                 st["prev_event_ids"] = failed
                 if deleted:
-                    notifier.notify_delete_done(tg.get("token",""), tg.get("chat_id",""), name, deleted, st.get("prev_ym",""))
+                    notifier.notify_delete_done(
+                        tg.get("token", ""), tg.get("chat_id", ""),
+                        name, deleted, st.get("prev_ym", "")
+                    )
 
         if st["count"] >= quota:
             self.log(f"[{name}] 本月已完成 {st['count']}/{quota}")
@@ -273,10 +289,9 @@ class Scheduler:
             self.log(f"[{name}] 今天已发过 ({st['count']}/{quota})")
             return
         if not ((1 <= day <= 5) or (day > 5 and st["count"] < quota)):
-            self.log(f"[{name}] {day}号，不在发布窗口")
+            self.log(f"[{name}] {day} 号，不在发布窗口")
             return
 
-        # 用该账号自己的 song_id，没有则用全局
         share_cfg = dict(self.cfg.get("share", {}))
         if acc.get("song_id"):
             share_cfg["id"] = acc["song_id"]
@@ -290,92 +305,92 @@ class Scheduler:
             if ev_id:
                 st["event_ids"].append(ev_id)
             self.log(f"[{name}] ✅ 发布成功，本月 {st['count']}/{quota}")
-            notifier.notify_share_success(tg.get("token",""), tg.get("chat_id",""), name, st["count"], quota, msg_sent)
+            notifier.notify_share_success(
+                tg.get("token", ""), tg.get("chat_id", ""),
+                name, st["count"], quota, msg_sent
+            )
             if st["count"] >= quota:
-                notifier.notify_quota_done(tg.get("token",""), tg.get("chat_id",""), name, quota)
+                notifier.notify_quota_done(
+                    tg.get("token", ""), tg.get("chat_id", ""), name, quota
+                )
         else:
             self.log(f"[{name}] ✗ 发布失败", "ERROR")
-            notifier.notify_share_fail(tg.get("token",""), tg.get("chat_id",""), name)
+            notifier.notify_share_fail(tg.get("token", ""), tg.get("chat_id", ""), name)
 
-    # ── 听歌逻辑 ──────────────────────────────
+    # ── 听歌保活逻辑 ──────────────────────────
     def _run_listener(self, acc, cookie, base, now):
-    name   = acc["name"]
-    month  = now.strftime("%Y-%m")
-    songs  = acc.get("songs", [])   # [{song_id, times}, ...]
+        name  = acc["name"]
+        month = now.strftime("%Y-%m")
+        songs = acc.get("songs", [])
 
-    if not songs:
-        self.log(f"[{name}] 歌单为空，跳过听歌", "WARNING")
-        return
-
-    st = self.state["accounts"].setdefault(name, {
-        "listen_month":   "",
-        "song_index":     0,
-        "song_listened":  0,
-    })
-
-    # 新的一月重置进度
-    if st.get("listen_month") != month:
-        st["listen_month"]  = month
-        st["song_index"]    = 0
-        st["song_listened"] = 0
-        self.log(f"[{name}] 新月份，歌单进度重置")
-
-    idx = st.get("song_index", 0)
-    if idx >= len(songs):
-        self.log(f"[{name}] 本月歌单已全部听完")
-        return
-
-    current = songs[idx]
-    song_id = current.get("song_id", "")
-    target  = current.get("times", 3)
-    done    = st.get("song_listened", 0)
-
-    if not song_id:
-        self.log(f"[{name}] 第 {idx+1} 首歌曲ID为空，跳过", "WARNING")
-        st["song_index"]   += 1
-        st["song_listened"] = 0
-        return
-
-    remaining = target - done
-    if remaining <= 0:
-        st["song_index"]   += 1
-        st["song_listened"] = 0
-        idx = st["song_index"]
-
-        if idx >= len(songs):
-            self.log(f"[{name}] 本月歌单已全部听完 🎉")
+        if not songs:
+            self.log(f"[{name}] 歌单为空，跳过听歌", "WARNING")
             return
 
-        current   = songs[idx]
-        song_id   = current.get("song_id", "")
-        target    = current.get("times", 3)
-        remaining = target
+        st = self.state["accounts"].setdefault(name, {
+            "listen_month":  "",
+            "song_index":    0,
+            "song_listened": 0,
+        })
 
-        self.log(f"[{name}] 切换到第 {idx+1} 首：{song_id}")
+        # 新月份重置
+        if st.get("listen_month") != month:
+            st["listen_month"]  = month
+            st["song_index"]    = 0
+            st["song_listened"] = 0
+            self.log(f"[{name}] 新月份，歌单进度重置")
 
-    self.log(f"[{name}] 🎵 听歌第 {idx+1}/{len(songs)} 首（{song_id}），还需听 {remaining} 次")
+        idx = st.get("song_index", 0)
+        if idx >= len(songs):
+            self.log(f"[{name}] 本月歌单已全部听完")
+            return
 
-    for _ in range(remaining):
-        ok = ncm.scrobble(base, cookie, song_id)
-        if ok:
-            st["song_listened"] += 1
-            done = st["song_listened"]
-            self.log(f"[{name}]   ✅ {done}/{target} 次")
-        else:
-            self.log(f"[{name}]   ✗ 听歌请求失败，稍后重试", "WARNING")
-            break
+        current = songs[idx]
+        song_id = current.get("song_id", "")
+        target  = current.get("times", 3)
+        done    = st.get("song_listened", 0)
 
-        time.sleep(2)
+        if not song_id:
+            self.log(f"[{name}] 第 {idx+1} 首歌曲ID为空，跳过", "WARNING")
+            st["song_index"]    += 1
+            st["song_listened"]  = 0
+            return
 
-    # 检查当前歌曲是否听完
-    if st["song_listened"] >= target:
-        st["song_index"]   += 1
-        st["song_listened"] = 0
+        # 当前歌曲已听完，切下一首
+        if done >= target:
+            st["song_index"]    += 1
+            st["song_listened"]  = 0
+            idx = st["song_index"]
+            if idx >= len(songs):
+                self.log(f"[{name}] 🎉 本月歌单全部听完")
+                return
+            current = songs[idx]
+            song_id = current.get("song_id", "")
+            target  = current.get("times", 3)
+            done    = 0
+            self.log(f"[{name}] 切换到第 {idx+1} 首：{song_id}")
 
-        if st["song_index"] >= len(songs):
-            self.log(f"[{name}] 🎉 本月歌单全部听完")
-        else:
-            self.log(f"[{name}] 当前歌曲听完，下次从第 {st['song_index']+1} 首继续")
+        remaining = target - done
+        self.log(f"[{name}] 🎵 第 {idx+1}/{len(songs)} 首（{song_id}），还需听 {remaining} 次")
+
+        for _ in range(remaining):
+            ok = ncm.scrobble(base, cookie, song_id)
+            if ok:
+                st["song_listened"] += 1
+                self.log(f"[{name}]   ✅ {st['song_listened']}/{target} 次")
+            else:
+                self.log(f"[{name}]   ✗ 听歌请求失败", "WARNING")
+                break
+            time.sleep(2)
+
+        # 听完后推进到下一首
+        if st["song_listened"] >= target:
+            st["song_index"]    += 1
+            st["song_listened"]  = 0
+            if st["song_index"] >= len(songs):
+                self.log(f"[{name}] 🎉 本月歌单全部听完")
+            else:
+                self.log(f"[{name}] 当前歌曲听完，下次从第 {st['song_index']+1} 首继续")
 
     # ── 主执行入口 ────────────────────────────
     def run_once(self, force_name=None):
@@ -397,22 +412,25 @@ class Scheduler:
             if force_name and name != force_name:
                 continue
 
-            self.log(f"── 账号：{name} ({acc.get('role','sharer')}) ──")
+            role = acc.get("role", "sharer")
+            self.log(f"── 账号：{name} ({role}) ──")
             self._update_runtime(name, last_run=_ts())
 
             cookie = self.load_cookie(name)
             if not cookie or not ncm.is_logged_in(base, cookie):
                 self.log(f"[{name}] Cookie 失效", "WARNING")
                 self._update_runtime(name, logged_in=False)
-                notifier.notify_login_expired(tg.get("token",""), tg.get("chat_id",""), name)
+                notifier.notify_login_expired(
+                    tg.get("token", ""), tg.get("chat_id", ""), name
+                )
                 continue
+
             self._update_runtime(name, logged_in=True)
 
             if not self.runtime.get(name, {}).get("nickname"):
                 profile = ncm.get_user_profile(base, cookie)
                 self._update_runtime(name, **profile)
 
-            role = acc.get("role", "sharer")
             if role == "listener":
                 self._run_listener(acc, cookie, base, now)
             else:
@@ -435,8 +453,8 @@ class Scheduler:
         self.load_config()
         self.run_once()
         while True:
-            t     = self._next_run_time()
-            delta = (t - datetime.now()).total_seconds()
+            t        = self._next_run_time()
+            delta    = (t - datetime.now()).total_seconds()
             next_str = t.strftime("%Y-%m-%d %H:%M")
             self.log(f"⏳ 下次执行：{next_str}")
             for acc in self.cfg.get("accounts", []):
