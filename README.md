@@ -59,6 +59,8 @@ services:
       - "127.0.0.1:9000:9000"
     volumes:
       - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
 ```
 
 ### 3. 启动
