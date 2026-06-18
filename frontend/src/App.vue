@@ -1,24 +1,25 @@
 <template>
   <div class="min-h-screen bg-slate-900 text-slate-200">
 
-    <!-- 初始化设置密码页 -->
     <SetupPage v-if="appState === 'setup'" @done="onSetupDone" />
-
-    <!-- 登录页 -->
     <LoginPage v-else-if="appState === 'login'" @done="onLoginDone" />
 
-    <!-- 主面板 -->
     <template v-else-if="appState === 'app'">
-      <!-- 顶栏 -->
       <header class="border-b border-slate-800 px-6 py-3 flex items-center justify-between">
         <div class="flex items-center gap-2">
           <span class="text-xl">🎵</span>
           <span class="font-bold">CloudMusic Manager</span>
         </div>
         <div class="flex items-center gap-3">
-          <span class="w-2 h-2 rounded-full" :class="anyOffline ? 'bg-red-400 animate-pulse' : 'bg-green-400'"></span>
-          <span class="text-xs text-slate-400">{{ anyOffline ? '有账号需要登录' : '运行正常' }}</span>
-          <button @click="logout" class="text-xs text-slate-500 hover:text-slate-300 transition-colors ml-2">退出</button>
+          <span class="w-2 h-2 rounded-full"
+                :class="anyOffline ? 'bg-red-400 animate-pulse' : 'bg-green-400'"></span>
+          <span class="text-xs text-slate-400">
+            {{ anyOffline ? '有账号需要登录' : '运行正常' }}
+          </span>
+          <button @click="logout"
+                  class="text-xs text-slate-500 hover:text-slate-300 transition-colors ml-2">
+            退出
+          </button>
         </div>
       </header>
 
@@ -28,7 +29,9 @@
           <button v-for="tab in tabs" :key="tab.id"
                   @click="activeTab = tab.id"
                   class="px-4 py-1.5 rounded-lg text-sm transition-colors"
-                  :class="activeTab === tab.id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'">
+                  :class="activeTab === tab.id
+                    ? 'bg-slate-700 text-white'
+                    : 'text-slate-400 hover:text-slate-200'">
             {{ tab.label }}
           </button>
         </div>
@@ -37,28 +40,34 @@
         <div v-if="activeTab === 'accounts'">
           <!-- 添加账号 -->
           <div class="flex gap-2 mb-4">
-            <input v-model="newAccName" placeholder="输入账号名称（如 acc1）"
-                   class="input w-56" @keyup.enter="addAccount" />
+            <input v-model="newAccName"
+                   placeholder="输入账号名称（如 acc1）"
+                   class="input w-52"
+                   @keyup.enter="addAccount" />
             <select v-model="newAccRole" class="input w-32">
               <option value="sharer">动态分享</option>
               <option value="listener">听歌保活</option>
-              </select>
+            </select>
             <button @click="addAccount" class="btn-primary px-4">+ 添加</button>
-            </div>
+          </div>
 
-          <!-- 账号卡片列表 -->
+          <!-- 空状态 -->
           <div v-if="accounts.length === 0"
                class="text-center py-16 text-slate-500">
             <div class="text-4xl mb-3">👤</div>
             <div>还没有账号，先添加一个吧</div>
           </div>
 
+          <!-- 账号卡片 -->
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <AccountCard v-for="acc in accounts" :key="acc.name"
-                         :acc="acc"
-                         @login="startLogin"
-                         @run="manualRun"
-                         @delete="deleteAccount" />
+            <AccountCard
+              v-for="acc in accounts" :key="acc.name"
+              :acc="acc"
+              @login="startLogin"
+              @run="manualRun"
+              @delete="deleteAccount"
+              @updated="fetchStatus"
+            />
           </div>
         </div>
 
@@ -75,24 +84,29 @@
     </template>
 
     <!-- 二维码弹窗 -->
-    <QrModal v-if="qr.show"
-             :name="qr.name" :qrimg="qr.img" :status="qr.status"
-             @close="closeQr" />
+    <QrModal
+      v-if="qr.show"
+      :name="qr.name"
+      :qrimg="qr.img"
+      :status="qr.status"
+      @close="closeQr"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
-import SetupPage   from './components/SetupPage.vue'
-import LoginPage   from './components/LoginPage.vue'
-import AccountCard from './components/AccountCard.vue'
-import QrModal     from './components/QrModal.vue'
-import LogViewer   from './components/LogViewer.vue'
+import SetupPage    from './components/SetupPage.vue'
+import LoginPage    from './components/LoginPage.vue'
+import AccountCard  from './components/AccountCard.vue'
+import QrModal      from './components/QrModal.vue'
+import LogViewer    from './components/LogViewer.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 
-// ── 全局 axios 认证 token ──────────────────
+// ── axios 认证拦截器 ──────────────────────
 function getToken() { return localStorage.getItem('cm_token') || '' }
+
 axios.interceptors.request.use(cfg => {
   const t = getToken()
   if (t) cfg.headers['Authorization'] = `Bearer ${t}`
@@ -107,7 +121,7 @@ axios.interceptors.response.use(r => r, err => {
 })
 
 // ── 应用状态 ──────────────────────────────
-const appState = ref('loading')  // loading | setup | login | app
+const appState  = ref('loading')
 const activeTab = ref('accounts')
 const tabs = [
   { id: 'accounts', label: '📋 账号' },
@@ -116,13 +130,14 @@ const tabs = [
 ]
 
 // ── 数据 ──────────────────────────────────
-const accounts  = ref([])
-const logs      = ref([])
+const accounts   = ref([])
+const logs       = ref([])
 const newAccName = ref('')
+const newAccRole = ref('sharer')
 
 const anyOffline = computed(() => accounts.value.some(a => !a.logged_in))
 
-// ── 初始化：判断进哪个页面 ─────────────────
+// ── 初始化 ────────────────────────────────
 async function init() {
   try {
     const { data } = await axios.get('/api/auth/status')
@@ -134,7 +149,6 @@ async function init() {
       appState.value = 'login'
       return
     }
-    // 验证 token 是否有效
     await axios.get('/api/status')
     appState.value = 'app'
     startPolling()
@@ -180,10 +194,14 @@ async function fetchLogs() {
 // ── 账号管理 ──────────────────────────────
 async function addAccount() {
   const name = newAccName.value.trim()
+  const role = newAccRole.value
   if (!name) return
   try {
-    await axios.post(`/api/accounts/add?name=${encodeURIComponent(name)}`)
+    await axios.post(
+      `/api/accounts/add?name=${encodeURIComponent(name)}&role=${role}`
+    )
     newAccName.value = ''
+    newAccRole.value = 'sharer'
     await fetchStatus()
   } catch (e) {
     alert(e.response?.data?.detail || '添加失败')
@@ -202,7 +220,7 @@ async function manualRun(name) {
   try {
     await axios.post(`/api/run?name=${encodeURIComponent(name)}`)
     setTimeout(fetchStatus, 3000)
-    setTimeout(fetchLogs, 3000)
+    setTimeout(fetchLogs,   3000)
   } catch {}
 }
 
@@ -213,16 +231,23 @@ let qrTimer = null
 async function startLogin(name) {
   qr.value = { show: true, name, img: '', status: 801 }
   try {
-    const { data } = await axios.post(`/api/login/start?name=${encodeURIComponent(name)}`)
+    const { data } = await axios.post(
+      `/api/login/start?name=${encodeURIComponent(name)}`
+    )
     if (data.ok) {
       qr.value.img = data.qrimg
       qrTimer = setInterval(async () => {
         try {
-          const { data: s } = await axios.get(`/api/login/status?name=${encodeURIComponent(name)}`)
+          const { data: s } = await axios.get(
+            `/api/login/status?name=${encodeURIComponent(name)}`
+          )
           qr.value.status = s.status
           if (s.status === 803) {
             clearInterval(qrTimer)
-            setTimeout(() => { qr.value.show = false; fetchStatus() }, 1500)
+            setTimeout(() => {
+              qr.value.show = false
+              fetchStatus()
+            }, 1500)
           }
           if (s.status === 800) clearInterval(qrTimer)
         } catch {}
