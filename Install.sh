@@ -86,6 +86,8 @@ services:
       - "127.0.0.1:$PORT:9000"
     volumes:
       - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
 EOF
     log "docker-compose.yml 已写入"
 }
