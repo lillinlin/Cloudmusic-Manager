@@ -299,35 +299,78 @@ class Scheduler:
 
     # ── 听歌逻辑 ──────────────────────────────
     def _run_listener(self, acc, cookie, base, now):
-        name        = acc["name"]
-        today       = now.strftime("%Y-%m-%d")
-        daily_limit = acc.get("listen_daily", 10)
-        song_id     = acc.get("song_id", self.cfg.get("share", {}).get("id", ""))
+    name   = acc["name"]
+    month  = now.strftime("%Y-%m")
+    songs  = acc.get("songs", [])   # [{song_id, times}, ...]
 
-        if not song_id:
-            self.log(f"[{name}] 未设置歌曲ID，跳过听歌", "WARNING")
+    if not songs:
+        self.log(f"[{name}] 歌单为空，跳过听歌", "WARNING")
+        return
+
+    st = self.state["accounts"].setdefault(name, {
+        "listen_month":   "",
+        "song_index":     0,
+        "song_listened":  0,
+    })
+
+    # 新的一月重置进度
+    if st.get("listen_month") != month:
+        st["listen_month"]  = month
+        st["song_index"]    = 0
+        st["song_listened"] = 0
+        self.log(f"[{name}] 新月份，歌单进度重置")
+
+    idx = st.get("song_index", 0)
+    if idx >= len(songs):
+        self.log(f"[{name}] 本月歌单已全部听完")
+        return
+
+    current = songs[idx]
+    song_id = current.get("song_id", "")
+    target  = current.get("times", 3)
+    done    = st.get("song_listened", 0)
+
+    if not song_id:
+        self.log(f"[{name}] 第 {idx+1} 首歌曲ID为空，跳过", "WARNING")
+        st["song_index"]   += 1
+        st["song_listened"] = 0
+        return
+
+    remaining = target - done
+    if remaining <= 0:
+        # 当前歌曲听完，切下一首
+        st["song_index"]   += 1
+        st["song_listened"] = 0
+        idx = st["song_index"]
+        if idx >= len(songs):
+            self.log(f"[{name}] 本月歌单已全部听完 🎉")
             return
+        current   = songs[idx]
+        song_id   = current.get("song_id", "")
+        target    = current.get("times", 3)
+        remaining = target
+        self.log(f"[{name}] 切换到第 {idx+1} 首：{song_id}")
 
-        st = self.state["accounts"].setdefault(name, {"listen_today": 0, "listen_date": ""})
-        if st.get("listen_date") != today:
-            st["listen_today"] = 0
-            st["listen_date"]  = today
+    self.log(f"[{name}] 🎵 听歌第 {idx+1}/{len(songs)} 首（{song_id}），还需听 {remaining} 次")
+    for _ in range(remaining):
+        ok = ncm.scrobble(base, cookie, song_id)
+        if ok:
+            st["song_listened"] += 1
+            done = st["song_listened"]
+            self.log(f"[{name}]   ✅ {done}/{target} 次")
+        else:
+            self.log(f"[{name}]   ✗ 听歌请求失败，稍后重试", "WARNING")
+            break
+        time.sleep(2)
 
-        if st["listen_today"] >= daily_limit:
-            self.log(f"[{name}] 今日听歌已达 {daily_limit} 次")
-            return
-
-        remaining = daily_limit - st["listen_today"]
-        self.log(f"[{name}] 开始听歌，今日还剩 {remaining} 次…")
-        for _ in range(remaining):
-            ok = ncm.scrobble(base, cookie, song_id)
-            if ok:
-                st["listen_today"] += 1
-                self.log(f"[{name}] 🎵 听歌 {st['listen_today']}/{daily_limit}")
-            else:
-                self.log(f"[{name}] 听歌请求失败", "WARNING")
-                break
-            time.sleep(2)
+    # 检查当前歌曲是否听完
+    if st["song_listened"] >= target:
+        st["song_index"]   += 1
+        st["song_listened"] = 0
+        if st["song_index"] >= len(songs):
+            self.log(f"[{name}] 🎉 本月歌单全部听完")
+        else:
+            self.log(f"[{name}] 当前歌曲听完，下次从第 {st['song_index']+1} 首继续")
 
     # ── 主执行入口 ────────────────────────────
     def run_once(self, force_name=None):
