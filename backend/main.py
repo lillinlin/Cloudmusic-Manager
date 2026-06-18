@@ -103,10 +103,15 @@ class ShareConfig(BaseModel):
     id:   str = ""
     msg:  str = "本月第{{count}}次分享 ✅ {{date}}"
 
+class SongItem(BaseModel):
+    song_id: str
+    times:   int = 700   # 每首听几次
+
 class AccountConfig(BaseModel):
     name:         str
-    role:         str = "sharer"    # sharer | listener
-    song_id:      Optional[str] = ""
+    role:         str = "sharer"
+    song_id:      Optional[str] = ""     # sharer 用
+    songs:        Optional[list[SongItem]] = []   # listener 用
     listen_daily: Optional[int] = 10
 
 class ConfigBody(BaseModel):
@@ -152,7 +157,10 @@ def add_account(name: str, role: str = "sharer", _=Depends(check_auth)):
     accounts = scheduler.cfg.get("accounts", [])
     if any(a["name"] == name for a in accounts):
         raise HTTPException(400, "账号名已存在")
-    accounts.append({"name": name, "role": role, "song_id": "", "listen_daily": 10})
+    accounts.append({
+        "name": name, "role": role,
+        "song_id": "", "songs": [], "listen_daily": 10
+    })
     scheduler.cfg["accounts"] = accounts
     scheduler.save_config()
     return {"ok": True}
@@ -173,6 +181,7 @@ def update_account(name: str, body: AccountConfig, _=Depends(check_auth)):
         if acc["name"] == name:
             acc["role"]         = body.role
             acc["song_id"]      = body.song_id or ""
+            acc["songs"]        = [s.dict() for s in (body.songs or [])]
             acc["listen_daily"] = body.listen_daily or 10
             break
     scheduler.cfg["accounts"] = accounts
