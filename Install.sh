@@ -63,6 +63,17 @@ setup_dir() {
     log "安装目录：$INSTALL_DIR"
 }
 
+setup_timezone() {
+    section "设置时区"
+    if timedatectl set-timezone Asia/Shanghai 2>/dev/null; then
+        log "时区已设置为 Asia/Shanghai"
+    else
+        ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+        echo "Asia/Shanghai" > /etc/timezone
+        log "时区已设置为 Asia/Shanghai"
+    fi
+}
+
 write_compose() {
     section "写入 docker-compose.yml"
     cat > "$INSTALL_DIR/docker-compose.yml" << EOF
@@ -224,6 +235,7 @@ main() {
     check_root
     check_docker
     setup_dir
+    setup_timezone
     write_compose
     start_container
     setup_nginx
