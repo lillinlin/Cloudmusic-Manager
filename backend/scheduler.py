@@ -205,30 +205,28 @@ class Scheduler:
             st        = self.state["accounts"].get(name, {})
             rt        = self.runtime.get(name, {})
             cookie    = self.load_cookie(name)
-            logged_in = bool(cookie) and ncm.is_logged_in(self.cfg.get("apiBase", ""), cookie)
+            login_ok  = ncm.is_logged_in(self.cfg.get("apiBase", ""), cookie) if cookie else False
+            logged_in = login_ok is True
             self._update_runtime(name, logged_in=logged_in)
 
             item = {
-                "name":      name,
-                "role":      role,
-                "logged_in": logged_in,
-                "nickname":  rt.get("nickname", ""),
-                "avatar":    rt.get("avatar", ""),
-                "last_run":  rt.get("last_run", ""),
-                "next_run":  rt.get("next_run", ""),
-                "qr_status": self.qr_sessions.get(name, {}).get("status", 0),
-                # sharer
-                "ym":    st.get("ym", ym),
-                "count": st.get("count", 0),
-                "quota": quota,
-                "days":  st.get("days", {}),
-                # listener
+                "name":          name,
+                "role":          role,
+                "logged_in":     logged_in,
+                "nickname":      rt.get("nickname", ""),
+                "avatar":        rt.get("avatar", ""),
+                "last_run":      rt.get("last_run", ""),
+                "next_run":      rt.get("next_run", ""),
+                "qr_status":     self.qr_sessions.get(name, {}).get("status", 0),
+                "ym":            st.get("ym", ym),
+                "count":         st.get("count", 0),
+                "quota":         quota,
+                "days":          st.get("days", {}),
                 "songs":         acc.get("songs", []),
                 "song_index":    st.get("song_index", 0),
                 "song_listened": st.get("song_listened", 0),
                 "listen_daily":  acc.get("listen_daily", 10),
-                # 通用
-                "song_id": acc.get("song_id", self.cfg.get("share", {}).get("id", "")),
+                "song_id":       acc.get("song_id", self.cfg.get("share", {}).get("id", "")),
             }
             result.append(item)
 
@@ -247,14 +245,12 @@ class Scheduler:
             "prev_ym": "", "prev_event_ids": [],
         })
 
-        # 月份切换
         if st.get("ym") != ym:
             self.log(f"[{name}] 新月份 {ym}，归档上月")
             st["prev_ym"]        = st.get("ym", "")
             st["prev_event_ids"] = st.get("event_ids", [])
             st.update({"ym": ym, "count": 0, "days": {}, "event_ids": []})
 
-        # 月初删除上月动态
         if day == 1:
             ids_to_delete = list(st.get("prev_event_ids", []))
             if not ids_to_delete and st.get("prev_ym"):
@@ -315,7 +311,9 @@ class Scheduler:
                 )
         else:
             self.log(f"[{name}] ✗ 发布失败", "ERROR")
-            notifier.notify_share_fail(tg.get("token", ""), tg.get("chat_id", ""), name)
+            notifier.notify_share_fail(
+                tg.get("token", ""), tg.get("chat_id", ""), name
+            )
 
     # ── 听歌保活逻辑 ──────────────────────────
     def _run_listener(self, acc, cookie, base, now):
@@ -333,7 +331,6 @@ class Scheduler:
             "song_listened": 0,
         })
 
-        # 新月份重置
         if st.get("listen_month") != month:
             st["listen_month"]  = month
             st["song_index"]    = 0
@@ -356,7 +353,6 @@ class Scheduler:
             st["song_listened"]  = 0
             return
 
-        # 当前歌曲已听完，切下一首
         if done >= target:
             st["song_index"]    += 1
             st["song_listened"]  = 0
@@ -383,7 +379,6 @@ class Scheduler:
                 break
             time.sleep(2)
 
-        # 听完后推进到下一首
         if st["song_listened"] >= target:
             st["song_index"]    += 1
             st["song_listened"]  = 0
@@ -417,8 +412,21 @@ class Scheduler:
             self._update_runtime(name, last_run=_ts())
 
             cookie = self.load_cookie(name)
-            if not cookie or not ncm.is_logged_in(base, cookie):
-                self.log(f"[{name}] Cookie 失效", "WARNING")
+            if not cookie:
+                self.log(f"[{name}] 没有 Cookie，需要登录", "WARNING")
+                self._update_runtime(name, logged_in=False)
+                notifier.notify_login_expired(
+                    tg.get("token", ""), tg.get("chat_id", ""), name
+                )
+                continue
+
+            login_ok = ncm.is_logged_in(base, cookie)
+            if login_ok is None:
+                # 网络连接失败，不是 cookie 失效，跳过本轮不报警
+                self.log(f"[{name}] API 连接失败，跳过本轮", "WARNING")
+                continue
+            if not login_ok:
+                self.log(f"[{name}] Cookie 失效，需要重新登录", "WARNING")
                 self._update_runtime(name, logged_in=False)
                 notifier.notify_login_expired(
                     tg.get("token", ""), tg.get("chat_id", ""), name
@@ -453,13 +461,18 @@ class Scheduler:
         self.load_config()
         self.run_once()
         while True:
+            now      = datetime.now()
             t        = self._next_run_time()
-            delta    = (t - datetime.now()).total_seconds()
             next_str = t.strftime("%Y-%m-%d %H:%M")
-            self.log(f"⏳ 下次执行：{next_str}")
+
+            # listener 每小时检查，sharer 等到定时时间
+            sleep_sec = min((t - now).total_seconds(), 3600)
+
             for acc in self.cfg.get("accounts", []):
                 self._update_runtime(acc["name"], next_run=next_str)
-            time.sleep(delta)
+
+            self.log(f"⏳ 下次定时执行：{next_str}，{int(sleep_sec//60)} 分钟后检查")
+            time.sleep(sleep_sec)
             self.run_once()
 
     def start(self):
