@@ -134,6 +134,7 @@ def do_share(base, cookie, share_cfg, count, today):
         "id":   str(share_cfg["id"]),
         "msg":  msg,
     })
+    _log.info(f"do_share result: {r}")
     if r and r.get("code") == 200:
         ev_id = str(r.get("data", {}).get("eventId") or r.get("eventId") or "")
         if not ev_id:
