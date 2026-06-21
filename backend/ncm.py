@@ -1,4 +1,4 @@
-import json, time, logging, base64, requests
+import json, time, logging, requests
 
 HEADERS = {
     "User-Agent": (
@@ -13,10 +13,7 @@ _log = logging.getLogger("ncm")
 
 
 def api(base, path, cookie="", params=None):
-    """
-    统一用 POST + form 传参，避免 GET URL 中 cookie 被截断的问题。
-    该 API 服务器同时支持 GET/POST，优先读 body 里的参数。
-    """
+    """GET 请求，cookie 同时放 header 和 query 参数"""
     p = dict(params or {})
     p.setdefault("timestamp", int(time.time() * 1000))
     h = dict(HEADERS)
@@ -24,8 +21,7 @@ def api(base, path, cookie="", params=None):
         h["Cookie"] = cookie
         p["cookie"] = cookie
     try:
-        # 改用 POST + data，彻底解决 cookie 在 URL 里被截断的问题
-        r = requests.post(base + path, data=p, headers=h, timeout=20)
+        r = requests.get(base + path, params=p, headers=h, timeout=20)
         if not r.text.strip():
             _log.warning(f"空响应 {path} status={r.status_code}")
             return {}
@@ -35,12 +31,40 @@ def api(base, path, cookie="", params=None):
         return {}
     except requests.exceptions.ConnectionError as e:
         _log.warning(f"连接失败 {path}: {e}")
-        return None   # None 表示网络问题，区别于 {} 的"接口返回空"
+        return None
     except ValueError:
         _log.warning(f"非JSON {path} [{r.status_code}]: {r.text[:80]}")
         return {}
     except Exception as e:
         _log.warning(f"请求失败 {path}: {e}")
+        return {}
+
+
+def api_post(base, path, cookie="", data=None):
+    """POST 请求，专用于 scrobble 等需要 POST 的接口"""
+    p = dict(data or {})
+    p.setdefault("timestamp", int(time.time() * 1000))
+    h = dict(HEADERS)
+    if cookie:
+        h["Cookie"] = cookie
+        p["cookie"] = cookie
+    try:
+        r = requests.post(base + path, data=p, headers=h, timeout=20)
+        if not r.text.strip():
+            _log.warning(f"空响应(POST) {path} status={r.status_code}")
+            return {}
+        return r.json()
+    except requests.exceptions.Timeout:
+        _log.warning(f"超时(POST) {path}")
+        return {}
+    except requests.exceptions.ConnectionError as e:
+        _log.warning(f"连接失败(POST) {path}: {e}")
+        return None
+    except ValueError:
+        _log.warning(f"非JSON(POST) {path} [{r.status_code}]: {r.text[:80]}")
+        return {}
+    except Exception as e:
+        _log.warning(f"请求失败(POST) {path}: {e}")
         return {}
 
 
@@ -60,12 +84,10 @@ def normalize_cookie(raw):
 
 
 def is_logged_in(base, cookie):
-    """
-    返回 True=已登录  False=未登录  None=网络连接失败
-    """
+    """返回 True=已登录  False=未登录  None=网络连接失败"""
     r = api(base, "/user/account", cookie)
     if r is None:
-        return None   # 网络问题，不能判断登录状态
+        return None
     return r.get("code") == 200
 
 
@@ -133,8 +155,8 @@ def delete_event(base, cookie, ev_id):
 
 
 def scrobble(base, cookie, song_id, source_id=None, time_sec=240):
-    """模拟听歌打卡"""
-    r = api(base, "/scrobble", cookie, {
+    """听歌打卡，用 POST 避免 cookie 在 URL 里被截断"""
+    r = api_post(base, "/scrobble", cookie, {
         "id":       str(song_id),
         "sourceid": str(source_id or song_id),
         "time":     time_sec,
